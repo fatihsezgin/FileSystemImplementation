@@ -15,6 +15,7 @@
 
 const int REG_FILE = 0;
 const int DIRECTORY = 1;
+const int NUMBEROFINODES = 32;
 
 struct SuperBlock
 {
@@ -66,7 +67,7 @@ int main()
     sb.inodeBitmap = 1;
     sb.dataBitmap[0] = 1;
 
-    printf("size of dirEntry: %lu\n", sizeof(struct dirEntry));
+    //printf("size of dirEntry: %lu\n", sizeof(struct dirEntry));
 
     //The root directory has a special feature, which having the same inode
     //numbers in dot and dotdot. In the root directory, the current and the
@@ -82,11 +83,12 @@ int main()
     root.dataBlockIndices[0] = dotdot.inodeNumber; //Previous
     root.dataBlockIndices[1] = dot.inodeNumber; // current
 
-    printf("%s\n ", dotdot.name);
-    printf("%u\n", dotdot.inodeNumber);
-
     FILE *sfs = fopen("sfs.bin", "w+");
     fwrite(&sb, sizeof(sb), 1, sfs);
+    
+    fwrite(&root, sizeof(struct inodeStructure),1, sfs); // inode structure
+
+    fseek(sfs, sizeof(sb) + NUMBEROFINODES * sizeof(struct inodeStructure), SEEK_SET);
     
     fwrite(&dotdot, sizeof( struct dirEntry), 1, sfs);
     fwrite(&dot, sizeof( struct dirEntry), 1, sfs);
@@ -110,15 +112,14 @@ int main()
         With the fseek the cursor location will be set 
         cur = beginning of the file + size of struct SuperBlock
     */
-    if (fseek(infile, sizeof(struct SuperBlock), SEEK_SET) < 1){
-        printf("seek is succesfull\n");
+    if(fseek(infile, sizeof(sb) + NUMBEROFINODES * sizeof (struct inodeStructure), SEEK_SET) < 1){
+        printf("Super Block and Inode Table is skipped, DataBlocks can be readed.\n");
     }
-
     /* 
-        Reading the dirEntries in sfs.bin file.
+        Reading the dirEntries in sfs.bin file. 
     */
     while (fread(&entry, sizeof(struct dirEntry), 1, infile))
-        printf("Name = %s \n", entry.name);
+        printf("Name = %s InodeNo = %u \n", entry.name, entry.inodeNumber);
 
     //write the first inode structure for the root to the file
     // (sfs.bin), remember this file contains your file system
