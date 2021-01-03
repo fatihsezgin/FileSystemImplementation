@@ -88,7 +88,7 @@ int main()
     
     fwrite(&root, sizeof(struct inodeStructure),1, sfs); // inode structure
 
-    fseek(sfs, sizeof(sb) + NUMBEROFINODES * sizeof(struct inodeStructure), SEEK_SET);
+    fseek(sfs, sizeof(sb) + NUMBEROFINODES * sizeof(struct inodeStructure), SEEK_SET); // jumped to the Data block
     
     fwrite(&dotdot, sizeof( struct dirEntry), 1, sfs);
     fwrite(&dot, sizeof( struct dirEntry), 1, sfs);
