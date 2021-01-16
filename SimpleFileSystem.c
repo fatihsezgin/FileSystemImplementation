@@ -16,7 +16,6 @@
 const int REG_FILE = 0;
 const int DIRECTORY = 1;
 const int NUMBEROFINODES = 32;
-
 struct SuperBlock
 {
     int inodeBitmap;    //will tell us an inodeStructure is used or free
