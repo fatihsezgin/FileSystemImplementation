@@ -62,6 +62,7 @@ int main() {
     int i;
     for(i = 0; i < 10; i++)
         root.data_block_indices[i] = 0;
+    //root.data_block_indices[0] = 0;
     
     //mark superblock inode and data
     //bitmap because an inode and a data
