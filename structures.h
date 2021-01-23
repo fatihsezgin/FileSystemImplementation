@@ -1,6 +1,6 @@
 #define NUMBEROFINODES 32
-#define REG_FILE 0;
-#define DIRECTORY 1;
+#define REG_FILE 0
+#define DIRECTORY 1
 
 struct SuperBlock
 {

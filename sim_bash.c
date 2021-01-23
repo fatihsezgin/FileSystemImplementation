@@ -6,13 +6,9 @@
 
 
 char name[28];
+int tab = 0;
 int curDirInodeNum = 0;
-
-struct dir_Entry_for_mkfile{
-    char name [28];  
-    char biography [200];
-    unsigned int inodeNumber;
-};
+int previousDir = 0;
 
 // First bash utility we will write is 'ls'.
 // Because we will use it for debugging as well.
@@ -26,7 +22,8 @@ struct dir_Entry_for_mkfile{
 // this will only print the current directory contents
 // every directory/file has it unique inode number
 // which used as an index into the inode table.
-void ls_cur(int inodeNum);
+void ls_cur(int inodeNum, int tab);
+void cd(char name[28], int inum);
 void mkdir(int currentDir, char name[28]);
 void mkfile(int currentDir, char name[28]);
 void get(int bitmap);
@@ -39,7 +36,10 @@ int main(){
         printf("> ");
         scanf("%s",command);
         if(strcmp(command,"ls") == 0){
-            ls_cur(curDirInodeNum);
+            ls_cur(curDirInodeNum, tab);
+        }else if(strcmp(command,"cd") == 0){
+            scanf("%s", name);
+            cd(name, curDirInodeNum);
         }else if(strcmp(command, "mkdir") == 0){
             scanf("%s",name);
             mkdir(curDirInodeNum, name);
@@ -56,94 +56,80 @@ int main(){
     return 0;
 }
 
-void ls_cur(int inodeNum){
-    struct inodeStructure root;
+void cd(char name[28], int inum){
+    char str1[28];
+    char str2[28];
+    int ret;
+    bool flag = false;
+    struct inodeStructure inostr;
+    struct dirEntry entry;
+    
+    FILE *sfs = fopen("sfs.bin", "r");
+    fseek(sfs, sizeof(struct SuperBlock), SEEK_SET);
+    fseek(sfs, sizeof(struct inodeStructure)*inum, SEEK_CUR);
+    fread(&inostr, sizeof(struct inodeStructure), 1, sfs);
+    int i;
+    for(i = 0; i < inostr.size / 32; i++){
+        fseek(sfs,sizeof(struct SuperBlock) + sizeof(struct inodeStructure) * 32 + 512 * inostr.dataBlockIndices[0] + i * sizeof(struct dirEntry), SEEK_SET);
+        fread(&entry,sizeof(struct dirEntry),1,sfs);
+        if(inostr.type == DIRECTORY){
+            printf("name: %s type: %d\n", entry.name,inostr.type);
+            strcpy(str1,entry.name);
+            strcpy(str2, name);
+            ret = strcmp(str1,str2);
+            if(ret == 0) {
+                previousDir = curDirInodeNum;
+                curDirInodeNum = entry.inodeNumber;
+                flag = true;
+            }
+            if(strcmp(name,"..") == 0){
+                fseek(sfs, sizeof(struct SuperBlock), SEEK_SET);
+                fseek(sfs, sizeof(struct inodeStructure)*inum, SEEK_CUR);
+                fread(&inostr, sizeof(struct inodeStructure), 1, sfs);
+                fseek(sfs,sizeof(struct SuperBlock) + sizeof(struct inodeStructure) * 32 + 512 * inostr.dataBlockIndices[0] + 1 * sizeof(struct dirEntry), SEEK_SET);
+                fread(&entry,sizeof(struct dirEntry),1,sfs);
+                previousDir = entry.inodeNumber;
+                curDirInodeNum = entry.inodeNumber;
+                fclose(sfs);
+                return;
+            }
+        }
+    }
+    fclose(sfs);
+    if(!flag)
+        printf("%s: No such file or directory\n", name);
+}
+
+void ls_cur(int inodeNum, int tab){
+    struct inodeStructure inostr;
     struct dirEntry entry;
     FILE *sfs = fopen("sfs.bin", "r");
     // just past the super block, that is we are at the beginning
     // of the inode table where the first inode structure contains,
     // the root directory.
-    fseek(sfs, sizeof(struct SuperBlock) + inodeNum * sizeof(struct inodeStructure), SEEK_SET);
-    fread(&root,sizeof(struct inodeStructure), 1, sfs);
-    int numOfEntries = root.size / sizeof(struct dirEntry);
-    fseek(sfs, sizeof(struct SuperBlock) + NUMBEROFINODES * sizeof(struct inodeStructure), SEEK_SET);
-    
-    while (fread(&entry, sizeof(struct dirEntry), 1, sfs)){
-        printf("%s %u \n", entry.name , entry.inodeNumber);
+    fseek(sfs, sizeof(struct SuperBlock), SEEK_SET);
+    fseek(sfs, sizeof(struct inodeStructure) * inodeNum, SEEK_CUR);
+    fread(&inostr,sizeof(struct inodeStructure), 1, sfs);
+    tab++;
+    int i;
+    for(i = 0; i < inostr.size / 32; i++){
+        fseek(sfs,sizeof(struct SuperBlock) + sizeof(struct inodeStructure) * 32 + 512 * inostr.dataBlockIndices[0] + i * sizeof(struct dirEntry), SEEK_SET);
+        fread(&entry,sizeof(struct dirEntry),1,sfs);
+        if(strcmp(entry.name,".") != 0 && strcmp(entry.name,"..") != 0){
+            if(inostr.type == DIRECTORY){
+                printf("%*s%s", tab * 5,"",entry.name);
+                printf("\t\t%d\n",inodeNum);
+                ls_cur(entry.inodeNumber, tab);
+            }
+        }
     }
+    tab--;
+    fclose(sfs);
 }
 
 void mkfile(int currentDir, char name[28]){
     struct SuperBlock superBlock;
-    struct inodeStructure dir;
-    struct dirEntry entry;
-    int inum = currentDir; // currentDir is a global variable, in mkdir scope it is reassigned into inum variable. 
-    
-    FILE *sfs = fopen("sfs.bin","r+");
-    fread(&superBlock, sizeof(struct SuperBlock), 1, sfs); //read the super block
-
-    bool flag = false;
-    int datablock = 0;
-    int datablockNumber = 0;
-    int datablockBitmap;
-
-    for (datablock = 0; datablock < 10; datablock++){ 
-        while(datablockNumber < 32){
-            if(getBit(datablock,superBlock.dataBitmap[datablock]) == 0){// finds the first zero bit in the dataBitmap[dataBlock]
-                flag = true;
-                datablockBitmap = setBit(datablockNumber, superBlock.dataBitmap[datablock]); // dataBlockBitmap is carries the new SuperBlock.dataBitmap
-                break;
-            }
-            datablockNumber++;
-        }
-        if(flag) break; // if the dataBitmap has updated break the loop.
-    }
-    datablock = 0;
-
-    int inode_bit;
-    int inode =0;
-    for (inode =0; inode< 32; inode++){
-        if(getBit(inode,superBlock.inodeBitmap) == 0){ // find the first zero bit in the SuperBlock inodeBitmap
-            inode_bit = setBit(inode, superBlock.inodeBitmap); // update the SuperBlock inodeBitmap and named as inode_bit
-            break;
-        }
-    }
-    superBlock.inodeBitmap = inode_bit; // updating the inodeBitmap in SuperBlock 
-    superBlock.dataBitmap[0] = datablockBitmap; // updating the dataBlockBitmap in SuperBlock
-    fseek(sfs, 0, SEEK_SET);
-    fwrite(&superBlock, sizeof(struct SuperBlock), 1, sfs); // write the updated SuperBlock
-
-    struct inodeStructure dirInode; 
-    dirInode.type = DIRECTORY; // since the operation is mkdir the type is DIRECTORY
-    dirInode.size = sizeof(struct   dirEntry) * 2; // memory allocation for . and ..
-    dirInode.dataBlockIndices[datablock] = datablockNumber; // allocates the dataBlockIndises
-    
-    fseek(sfs, sizeof(struct SuperBlock) + sizeof(struct inodeStructure) * inode, SEEK_SET); // jump to the inodeStructure that the new directory will be written
-    fwrite(&dirInode, sizeof(dirInode), 1, sfs); // write the dirInode to the Inode-Table
-
-
-    struct dir_Entry_for_mkfile file;
-	strcpy(file.name, "fatih");
-    strcpy(file.biography, "Hello my dear friends. I am Fatih. I am 22 years old and I am a student of istanbul aydin university");
-	file.inodeNumber = inode; // points the current directory inode
-
-    // Jumps to the beginning of the datablock
-    fseek(sfs, sizeof(struct SuperBlock) + sizeof(struct inodeStructure) * NUMBEROFINODES, SEEK_SET );
-    fwrite(&file, sizeof(struct dir_Entry_for_mkfile), 1, sfs);
-
-    // This is just for testing purpose.
-    struct dir_Entry_for_mkfile testFile;
-    fseek(sfs, sizeof(struct SuperBlock) + sizeof(struct inodeStructure) * NUMBEROFINODES, SEEK_SET );
-    while(fread(&testFile, sizeof(struct dir_Entry_for_mkfile),1 ,sfs) == 1){
-        printf("%s %u\n", testFile.name, testFile.inodeNumber);
-    }
-    
-    fclose(sfs);
-}
-
-void mkdir(int currentDir, char name[28]){
-    struct SuperBlock superBlock;
-    struct inodeStructure dir;
+    struct inodeStructure inostr;
     struct dirEntry entry;
     int inum = currentDir; // currentDir is a global variable, in mkdir scope it is reassigned into inum variable. 
     
@@ -162,12 +148,89 @@ void mkdir(int currentDir, char name[28]){
             if(getBit(datablockNumber,superBlock.dataBitmap[datablock]) == 0){// finds the first zero bit in the dataBitmap[dataBlock]
                 flag = true;
                 datablockBitmap = setBit(datablockNumber, superBlock.dataBitmap[datablock]);
-                superBlock.dataBitmap[datablock] = datablockBitmap; // updating the dataBlockBitmap in SuperBlock
-                datablockBitmap = setBit(datablockNumber + 1, superBlock.dataBitmap[datablock]);
-                superBlock.dataBitmap[datablock] = datablockBitmap; // updating the dataBlockBitmap in SuperBlock
-                datablockBitmap = setBit(datablockNumber + 2, superBlock.dataBitmap[datablock]);
-                superBlock.dataBitmap[datablock] = datablockBitmap; // updating the dataBlockBitmap in SuperBlock
-                 // dataBlockBitmap is carries the new SuperBlock.dataBitmap
+                printf("after set data bitmap: \n");
+                get(datablockBitmap);
+                break;
+            }
+            datablockNumber++;
+        }
+        if(flag) break; // if the dataBitmap has updated break the loop.
+    }
+    printf("%d  %d --> datablock, datablockNumber\n",datablock,datablockNumber);
+
+    int inode_bit;
+    int inode;
+    for (inode = 0; inode< 32; inode++){
+        if(getBit(inode,superBlock.inodeBitmap) == 0){ // find the first zero bit in the SuperBlock inodeBitmap
+            inode_bit = setBit(inode, superBlock.inodeBitmap); // update the SuperBlock inodeBitmap and named as inode_bit
+            printf("after set inode bitmap: \n");
+            get(inode_bit);
+            break;
+        }
+    }
+    
+    struct inodeStructure dirInode;
+    dirInode.type = REG_FILE; // 0
+    dirInode.size = 64;
+    dirInode.dataBlockIndices[datablock] = datablockNumber;
+    
+    fseek(sfs, sizeof(struct SuperBlock) + sizeof(struct inodeStructure) * inode, SEEK_SET);
+    fwrite(&dirInode, sizeof(dirInode),1, sfs);
+
+    struct inodeStructure testInode;
+    fseek(sfs, sizeof(struct SuperBlock) + sizeof(struct inodeStructure) * inode, SEEK_SET);
+    fread(&testInode, sizeof(testInode), 1, sfs);
+    printf("test typee %d", testInode.type);
+
+    fseek(sfs, sizeof(struct SuperBlock) + sizeof(struct inodeStructure) * 32 + 512 * (datablock * datablockNumber + datablockNumber), SEEK_SET);
+    
+    
+    struct dirEntry file;
+    fseek(sfs, sizeof(struct SuperBlock), SEEK_SET);
+    fseek(sfs, sizeof(struct inodeStructure) * inum, SEEK_CUR);
+    fread(&inostr, sizeof(struct inodeStructure), 1, sfs);
+    strcpy(file.name,name);
+    file.inodeNumber = inode;
+    fseek(sfs, sizeof(struct SuperBlock) + sizeof(struct inodeStructure) * 32 + 512 * inostr.dataBlockIndices[0] + (inostr.size / 32) * sizeof(struct dirEntry), SEEK_SET);
+    fwrite(&file, sizeof(file), 1, sfs);
+    
+    fseek(sfs,sizeof(struct SuperBlock),SEEK_SET);
+    fseek(sfs,sizeof(struct inodeStructure) * inum,SEEK_CUR);
+    fread(&inostr,sizeof(inostr),1,sfs);
+    inostr.size += 32;
+
+    fseek(sfs,sizeof(struct SuperBlock) + sizeof(struct inodeStructure) * inum,SEEK_SET);
+    fwrite(&inostr, sizeof(inostr), 1, sfs);
+
+    superBlock.inodeBitmap= inode_bit;
+    superBlock.dataBitmap[datablock] = datablockBitmap;
+    fseek(sfs,0,SEEK_SET);
+    fwrite(&superBlock,sizeof(superBlock),1,sfs);
+
+    fclose(sfs);
+}
+
+void mkdir(int currentDir, char name[28]){
+    struct SuperBlock superBlock;
+    struct inodeStructure inostr;
+    struct dirEntry entry;
+    int inum = currentDir; // currentDir is a global variable, in mkdir scope it is reassigned into inum variable. 
+    
+    FILE *sfs = fopen("sfs.bin","r+");
+    fread(&superBlock, sizeof(struct SuperBlock), 1, sfs); //read the super block
+
+    bool flag = false;
+    int datablock = 0; //db_array
+    int datablockNumber = 0; //db_num
+    int datablockBitmap; //db_bit
+
+    for (datablock = 0; datablock < 10; datablock++){ 
+        printf("buraya girdi\n");
+        while(datablockNumber < 32){
+            printf("buraya da girdi\n");
+            if(getBit(datablockNumber,superBlock.dataBitmap[datablock]) == 0){// finds the first zero bit in the dataBitmap[dataBlock]
+                flag = true;
+                datablockBitmap = setBit(datablockNumber, superBlock.dataBitmap[datablock]);
                 printf("after set data bitmap: \n");
                 get(datablockBitmap);
                 break;
@@ -189,46 +252,49 @@ void mkdir(int currentDir, char name[28]){
         }
     }
     
-    superBlock.inodeBitmap = inode_bit; // updating the inodeBitmap in SuperBlock 
+    struct inodeStructure dirInode;
+    dirInode.type = DIRECTORY; // 1
+    dirInode.size = 32 *2;
+    dirInode.dataBlockIndices[datablock] = datablockNumber;
     
-    fseek(sfs, 0, SEEK_SET);
-    fwrite(&superBlock, sizeof(struct SuperBlock), 1, sfs); // write the updated SuperBlock
-
-    struct inodeStructure dirInode; 
-    dirInode.type = DIRECTORY; // since the operation is mkdir the type is DIRECTORY
-    dirInode.size = sizeof(struct dirEntry) * 2; // memory allocation for . and ..
-    dirInode.dataBlockIndices[datablock] = datablockNumber; // allocates the dataBlockIndises
-    
-    fseek(sfs, sizeof(struct SuperBlock) + sizeof(struct inodeStructure) * inode, SEEK_SET); // jump to the inodeStructure that the new directory will be written
-    fwrite(&dirInode, sizeof(dirInode), 1, sfs); // write the dirInode to the Inode-Table
+    fseek(sfs, sizeof(struct SuperBlock) + sizeof(struct inodeStructure) * inode, SEEK_SET);
+    fwrite(&dirInode, sizeof(dirInode),1, sfs);
 
     struct dirEntry dot;
-	strcpy(dot.name, ".");
-	dot.inodeNumber = inode; // points the current directory inode
-    printf("dot inode : %d\n",inode );
-
-	struct dirEntry dotdot;
-	strcpy(dotdot.name, "..");
-	dotdot.inodeNumber = inum; //points the previous directory inode
-    printf("dotdot inode %d\n", inum);
-
-    // Jumps to the beginning of the datablock
-    fseek(sfs, sizeof(struct SuperBlock) + sizeof(struct inodeStructure) * NUMBEROFINODES + datablockNumber * sizeof(struct dirEntry)  , SEEK_SET);
+    strcpy(dot.name, ".");
+    dot.inodeNumber = inode;
     
+    struct dirEntry dotdot;
+    strcpy(dotdot.name,"..");
+    dotdot.inodeNumber = inum;
+
+    fseek(sfs, sizeof(struct SuperBlock) + sizeof(struct inodeStructure) * 32 + 512 * (datablock * datablockNumber + datablockNumber), SEEK_SET);
+    fwrite(&dot, sizeof(dot), 1, sfs);
+    fwrite(&dotdot, sizeof(dotdot), 1, sfs);
     
-    // this is the initialization of the directory
-    struct dirEntry directory;
-    strcpy(directory.name, name); //directory name copied with the name given with command.
-    directory.inodeNumber = inode; //directyor inode variable should be same with the inode number which has been found previously, and indicates the first zero bit in inodeBitmap
-    fwrite(&directory, sizeof(struct dirEntry), 1, sfs); // writing the directory to the sfs.bin file
-    fwrite(&dot, sizeof(struct dirEntry), 1, sfs);
-    fwrite(&dotdot, sizeof(struct dirEntry), 1, sfs);
-    // This is just for testing purpose.
-    struct dirEntry testDir;
-    fseek(sfs, sizeof(struct SuperBlock) + sizeof(struct inodeStructure) * NUMBEROFINODES, SEEK_SET );
-    while(fread(&testDir, sizeof(struct dirEntry),1 ,sfs) == 1){
-        printf("%s %u\n", testDir.name, testDir.inodeNumber);
-    }
+    struct dirEntry dir;
+    fseek(sfs, sizeof(struct SuperBlock), SEEK_SET);
+    fseek(sfs, sizeof(struct inodeStructure) * inum, SEEK_CUR);
+    fread(&inostr, sizeof(struct inodeStructure), 1, sfs);
+    strcpy(dir.name,name);
+    dir.inodeNumber = inode;
+    fseek(sfs, sizeof(struct SuperBlock) + sizeof(struct inodeStructure) * 32 + 512 * inostr.dataBlockIndices[0]
+     + (inostr.size / 32) * sizeof(struct dirEntry), SEEK_SET);
+    fwrite(&dir, sizeof(dir), 1, sfs);
+    
+    fseek(sfs,sizeof(struct SuperBlock),SEEK_SET);
+    fseek(sfs,sizeof(struct inodeStructure) * inum,SEEK_CUR);
+    fread(&inostr,sizeof(inostr),1,sfs);
+    inostr.size += 32;
+
+    fseek(sfs,sizeof(struct SuperBlock) + sizeof(struct inodeStructure) * inum,SEEK_SET);
+    fwrite(&inostr, sizeof(inostr), 1, sfs);
+
+    superBlock.inodeBitmap= inode_bit;
+    superBlock.dataBitmap[datablock] = datablockBitmap;
+    fseek(sfs,0,SEEK_SET);
+    fwrite(&superBlock,sizeof(superBlock),1,sfs);
+
     fclose(sfs);
 }
 
