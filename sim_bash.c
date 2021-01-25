@@ -101,40 +101,49 @@ void cd(char name[28], int inum)
         fseek(sfs, sizeof(struct SuperBlock) + sizeof(struct inodeStructure) * 32 + 512 * inostr.dataBlockIndices[0] + i * sizeof(struct dirEntry), SEEK_SET);
         fread(&entry, sizeof(struct dirEntry), 1, sfs);
         // if the type is directory
-        if (inostr.type == DIRECTORY)
+        //if (inostr.type == DIRECTORY)
+        //{
+        printf("name: %s type: %d\n", entry.name, inostr.type);
+        strcpy(str1, entry.name);
+        strcpy(str2, name);
+        ret = strcmp(str1, str2); // comparing the name that is given as parameter and the entry name in the inostr
+        if (ret == 0)
         {
-            printf("name: %s type: %d\n", entry.name, inostr.type);
-            strcpy(str1, entry.name);
-            strcpy(str2, name);
-            ret = strcmp(str1, str2); // comparing the name that is given as parameter and the entry name in the inostr
-            if (ret == 0)
-            {
-                // if both names are equal
-                previousDir = curDirInodeNum; // to store the previous directory
-                // directory will be change and the global pointer of the directory, should be equal with the entry.inodeNumber
+            fseek(sfs, sizeof(struct SuperBlock), SEEK_SET);
+            fseek(sfs, sizeof(struct inodeStructure)*entry.inodeNumber, SEEK_CUR);
+            fread(&inostr, sizeof(struct inodeStructure), 1, sfs);
+            printf("name: %s type: %d inode_number %d\n", entry.name,inostr.type,entry.inodeNumber);
+            if(inostr.type == DIRECTORY){
+                previousDir = curDirInodeNum;
                 curDirInodeNum = entry.inodeNumber;
                 flag = true;
             }
-            if (strcmp(name, "..") == 0) // if the user input is (..) which indicates the previous directory
-            { 
-                // pass the super block, we are beginning of the inodeStructure 
-                // that contains the entries in current directory
-                fseek(sfs, sizeof(struct SuperBlock), SEEK_SET);
-                fseek(sfs, sizeof(struct inodeStructure) * inum, SEEK_CUR);
-                fread(&inostr, sizeof(struct inodeStructure), 1, sfs);
-                // end of the jumping to the inodeStructure
-
-                // pass the whole super and inodeStructure, and pass through before the dirEntry we are currently in
-                fseek(sfs, sizeof(struct SuperBlock) + sizeof(struct inodeStructure) * 32 
-                                + 512 * inostr.dataBlockIndices[0] + 1 * sizeof(struct dirEntry), SEEK_SET);
-                // read the entry
-                fread(&entry, sizeof(struct dirEntry), 1, sfs);
-                previousDir = entry.inodeNumber; // change the pointer of the 
-                curDirInodeNum = entry.inodeNumber;
-                fclose(sfs);
-                return;
-            }
+            // if both names are equal
+            // previousDir = curDirInodeNum; // to store the previous directory
+            // directory will be change and the global pointer of the directory, should be equal with the entry.inodeNumber
+            //curDirInodeNum = entry.inodeNumber;
+            //flag = true;
         }
+        if (strcmp(name, "..") == 0) // if the user input is (..) which indicates the previous directory
+        { 
+            // pass the super block, we are beginning of the inodeStructure 
+            // that contains the entries in current directory
+            fseek(sfs, sizeof(struct SuperBlock), SEEK_SET);
+            fseek(sfs, sizeof(struct inodeStructure) * inum, SEEK_CUR);
+            fread(&inostr, sizeof(struct inodeStructure), 1, sfs);
+            // end of the jumping to the inodeStructure
+
+            // pass the whole super and inodeStructure, and pass through before the dirEntry we are currently in
+            fseek(sfs, sizeof(struct SuperBlock) + sizeof(struct inodeStructure) * 32 
+                            + 512 * inostr.dataBlockIndices[0] + 1 * sizeof(struct dirEntry), SEEK_SET);
+            // read the entry
+            fread(&entry, sizeof(struct dirEntry), 1, sfs);
+            previousDir = entry.inodeNumber; // change the pointer of the 
+            curDirInodeNum = entry.inodeNumber;
+            fclose(sfs);
+            return;
+        }
+        //}
     }
     fclose(sfs);
     if (!flag)
